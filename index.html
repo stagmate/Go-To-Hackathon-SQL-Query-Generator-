@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gojek SQL Query Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Icon Library (for copy icon) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/phosphor-icons/1.4.2/phosphor-icons.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom scrollbar for a cleaner look */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background-color: #d1d5db;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background-color: #9ca3af;
+        }
+        /* Simple transition for cards */
+        .metric-card {
+            transition: all 0.2s ease-in-out;
+        }
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        /* Hide number input arrows */
+        input[type='number']::-webkit-inner-spin-button,
+        input[type='number']::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen antialiased">
+
+    <div class="w-full bg-white shadow-md">
+        <div class="container mx-auto max-w-5xl px-4 py-4">
+            <h1 class="text-2xl font-bold text-gray-900">
+                <span class="text-green-600">Gojek</span> SQL Query Generator
+            </h1>
+            <p class="text-gray-600">Ask a question to find the right metric and generate your query.</p>
+        </div>
+    </div>
+
+    <div class="container mx-auto max-w-5xl px-4 py-8">
+        
+        <!-- 1. Search Input -->
+        <div class="mb-6">
+            <label for="search-query" class="block text-sm font-medium text-gray-700 mb-2">Ask a question</label>
+            <input type="text" id="search-query" 
+                   placeholder="e.g., 'average orders per day' or 'total earnings'"
+                   class="w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-green-500 focus:border-green-500 text-lg">
+        </div>
+
+        <!-- 2. Matched Metrics -->
+        <div class="mb-6">
+            <h2 class="text-lg font-semibold text-gray-800 mb-3">Matching Metrics</h2>
+            <div id="metrics-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- Metric cards will be injected here -->
+                <p id="metrics-placeholder" class="text-gray-500 col-span-full">Start typing to find relevant metrics...</p>
+            </div>
+        </div>
+
+        <!-- 3. Parameter Inputs (hidden by default) -->
+        <div id="params-section" class="bg-white p-6 rounded-lg shadow-md mb-6 hidden">
+            <h2 class="text-xl font-bold text-gray-900 mb-4">
+                Selected Metric: <span id="selected-metric-name" class="text-green-600"></span>
+            </h2>
+            <div id="params-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Parameter inputs will be injected here -->
+            </div>
+            <button id="generate-sql-btn" class="mt-6 w-full md:w-auto bg-green-600 text-white font-semibold py-2 px-5 rounded-lg shadow-md hover:bg-green-700 transition duration-200">
+                Generate SQL Query
+            </button>
+        </div>
+
+        <!-- 4. SQL Output (hidden by default) -->
+        <div id="sql-output-section" class="bg-gray-900 p-6 rounded-lg shadow-md relative hidden">
+            <h2 class="text-xl font-bold text-white mb-4">Generated SQL Query</h2>
+            <button id="copy-sql-btn" title="Copy to Clipboard" class="absolute top-4 right-4 bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white p-2 rounded-lg transition duration-200">
+                <i class="ph-clipboard-text text-xl"></i>
+            </button>
+            <pre><code id="sql-output" class="text-green-300 whitespace-pre-wrap break-all">...</code></pre>
+            <div id="copy-success" class="absolute top-14 right-4 bg-green-500 text-white text-xs font-semibold px-2 py-1 rounded shadow-md hidden">
+                Copied!
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- THE METRIC REGISTRY ---
+        // This is your "database" or "sheet" of hard-coded metrics.
+        // You can add, edit, or remove any metric here.
+        const METRIC_REGISTRY = [
+            {
+                id: 'avg_daily_orders',
+                name: 'Average Daily Orders',
+                description: 'The average number of completed orders per day.',
+                keywords: ['orders', 'average', 'daily', 'per day', 'avg', 'count'],
+                parameters: ['dateRange', 'product', 'region'],
+                // sqlTemplate is a function that receives params and returns a string
+                sqlTemplate: (params) => `
+-- METRIC: Average Daily Orders
+-- DESCRIPTION: ${params.metricDescription}
+-- DATE RANGE: ${params.startDate} to ${params.endDate}
+-- PRODUCT: ${params.product}
+-- REGION: ${params.region}
+
+WITH daily_orders AS (
+    SELECT
+        TO_DATE(order_timestamp) AS order_date,
+        COUNT(DISTINCT order_id) AS daily_order_count
+    FROM
+        p_gojek_prod.final.orders_mart
+    WHERE
+        order_status = 'COMPLETED'
+        AND TO_DATE(order_timestamp) BETWEEN '${params.startDate}' AND '${params.endDate}'
+        ${params.product !== 'All' ? `AND product_type = '${params.product}'` : '-- All Products'}
+        ${params.region !== 'All' ? `AND city_name = '${params.region}'` : '-- All Regions'}
+    GROUP BY
+        1
+)
+SELECT
+    AVG(daily_order_count) AS average_daily_orders
+FROM
+    daily_orders;
+                `
+            },
+            {
+                id: 'total_gtv',
+                name: 'Total Earnings (GTV)',
+                description: 'The sum of Gross Transaction Value (GTV) in local currency.',
+                keywords: ['earnings', 'total', 'gtv', 'revenue', 'money', 'sum'],
+                parameters: ['dateRange', 'region'],
+                sqlTemplate: (params) => `
+-- METRIC: Total Earnings (GTV)
+-- DESCRIPTION: ${params.metricDescription}
+-- DATE RANGE: ${params.startDate} to ${params.endDate}
+-- REGION: ${params.region}
+
+SELECT
+    SUM(gtv_amount_local) AS total_gtv,
+    'IDR' AS currency -- (Assuming local currency)
+FROM
+    p_gojek_prod.final.earnings_fact
+WHERE
+    TO_DATE(booking_timestamp) BETWEEN '${params.startDate}' AND '${params.endDate}'
+    ${params.region !== 'All' ? `AND city_name = '${params.region}'` : '-- All Regions'};
+                `
+            },
+            {
+                id: 'daily_active_drivers',
+                name: 'Daily Active Drivers (Avg)',
+                description: 'The average number of unique drivers active per day.',
+                keywords: ['drivers', 'active', 'daily', 'avg', 'unique', 'partners'],
+                parameters: ['dateRange', 'product'],
+                sqlTemplate: (params) => `
+-- METRIC: Daily Active Drivers (Avg)
+-- DESCRIPTION: ${params.metricDescription}
+-- DATE RANGE: ${params.startDate} to ${params.endDate}
+-- PRODUCT: ${params.product}
+
+WITH daily_drivers AS (
+    SELECT
+        TO_DATE(event_timestamp) AS activity_date,
+        COUNT(DISTINCT driver_id) AS unique_drivers
+    FROM
+        p_gojek_prod.raw.driver_ping_logs -- (Invented table for illustration)
+    WHERE
+        TO_DATE(event_timestamp) BETWEEN '${params.startDate}' AND '${params.endDate}'
+        ${params.product !== 'All' ? `AND active_product = '${params.product}'` : '-- All Products'}
+    GROUP BY
+        1
+)
+SELECT
+    AVG(unique_drivers) AS average_daily_active_drivers
+FROM
+    daily_drivers;
+                `
+            },
+            {
+                id: 'caretech_ratings',
+                name: 'Average CareTech Rating',
+                description: 'Average rating given for CareTech services.',
+                keywords: ['rating', 'caretech', 'avg', 'average', 'feedback'],
+                parameters: ['dateRange'],
+                sqlTemplate: (params) => `
+-- METRIC: Average CareTech Rating
+-- DESCRIPTION: ${params.metricDescription}
+-- DATE RANGE: ${params.startDate} to ${params.endDate}
+
+SELECT
+    AVG(rating_stars) AS average_caretech_rating
+FROM
+    p_gojek_id_raw.extstream.clickstream_component_log
+WHERE
+    product = 'CareTech'
+    AND event_name = 'Driver Rating Star Click'
+    AND TO_DATE(event_timestamp) BETWEEN '${params.startDate}' AND '${params.endDate}'
+    AND rating_stars IS NOT NULL;
+                `
+            }
+        ];
+
+        // --- DOM Elements ---
+        const searchQueryInput = document.getElementById('search-query');
+        const metricsContainer = document.getElementById('metrics-container');
+        const metricsPlaceholder = document.getElementById('metrics-placeholder');
+        
+        const paramsSection = document.getElementById('params-section');
+        const selectedMetricNameEl = document.getElementById('selected-metric-name');
+        const paramsContainer = document.getElementById('params-container');
+        const generateSqlBtn = document.getElementById('generate-sql-btn');
+        
+        const sqlOutputSection = document.getElementById('sql-output-section');
+        const sqlOutputEl = document.getElementById('sql-output');
+        const copySqlBtn = document.getElementById('copy-sql-btn');
+        const copySuccessEl = document.getElementById('copy-success');
+
+        let selectedMetric = null;
+
+        // --- Helper Functions ---
+
+        /**
+         * Returns default start and end dates (last 7 days).
+         * Formats: YYYY-MM-DD
+         */
+        function getDefaultDates() {
+            const endDate = new Date();
+            const startDate = new Date();
+            startDate.setDate(endDate.getDate() - 7);
+            
+            return {
+                start: startDate.toISOString().split('T')[0],
+                end: endDate.toISOString().split('T')[0]
+            };
+        }
+
+        /**
+         * Renders the parameter input fields for a given metric.
+         */
+        function renderParameterInputs(metric) {
+            paramsContainer.innerHTML = ''; // Clear old inputs
+            
+            metric.parameters.forEach(param => {
+                let inputHtml = '';
+                switch (param) {
+                    case 'dateRange':
+                        const { start, end } = getDefaultDates();
+                        inputHtml = `
+                            <div class="col-span-1 md:col-span-2 grid grid-cols-2 gap-4">
+                                <div>
+                                    <label for="param-start-date" class="block text-sm font-medium text-gray-700">Start Date</label>
+                                    <input type="date" id="param-start-date" value="${start}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500 sm:text-sm">
+                                </div>
+                                <div>
+                                    <label for="param-end-date" class="block text-sm font-medium text-gray-700">End Date</label>
+                                    <input type="date" id="param-end-date" value="${end}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500 sm:text-sm">
+                                </div>
+                            </div>
+                        `;
+                        break;
+                    
+                    case 'product':
+                        inputHtml = `
+                            <div>
+                                <label for="param-product" class="block text-sm font-medium text-gray-700">Product</label>
+                                <select id="param-product" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500 sm:text-sm">
+                                    <option>All</option>
+                                    <option>GoRide</option>
+                                    <option>GoCar</option>
+                                    <option>GoFood</option>
+                                    <option>GoSend</option>
+                                    <option>CareTech</option>
+                                </select>
+                            </div>
+                        `;
+                        break;
+                    
+                    case 'region':
+                        inputHtml = `
+                            <div>
+                                <label for="param-region" class="block text-sm font-medium text-gray-700">Region (City)</label>
+                                <select id="param-region" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500 sm:text-sm">
+                                    <option>All</option>
+                                    <option>Jakarta</option>
+                                    <option>Bandung</option>
+                                    <option>Surabaya</option>
+                                    <option>Bali</option>
+                                </select>
+                            </div>
+                        `;
+                        break;
+                }
+                paramsContainer.innerHTML += inputHtml;
+            });
+        }
+
+        /**
+         * Gets the current values from the rendered parameter inputs.
+         */
+        function getParameterValues(metric) {
+            const params = {
+                metricDescription: metric.description
+            };
+            
+            if (metric.parameters.includes('dateRange')) {
+                params.startDate = document.getElementById('param-start-date').value;
+                params.endDate = document.getElementById('param-end-date').value;
+            }
+            if (metric.parameters.includes('product')) {
+                params.product = document.getElementById('param-product').value;
+            }
+            if (metric.parameters.includes('region')) {
+                params.region = document.getElementById('param-region').value;
+            }
+            
+            return params;
+        }
+
+        /**
+         * Copies text to the clipboard.
+         * Uses document.execCommand as a fallback for iframe environments.
+         */
+        function copyToClipboard(text) {
+            try {
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.style.position = 'fixed'; // Copes with zoom
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                
+                // Show success message
+                copySuccessEl.classList.remove('hidden');
+                setTimeout(() => {
+                    copySuccessEl.classList.add('hidden');
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy: ', err);
+                alert('Failed to copy to clipboard.');
+            }
+        }
+
+        // --- Event Handlers ---
+
+        /**
+         * Handles search input: filters and displays matching metrics.
+         */
+        function handleSearchInput() {
+            const query = searchQueryInput.value.toLowerCase().trim();
+            if (query.length === 0) {
+                metricsContainer.innerHTML = '';
+                metricsPlaceholder.classList.remove('hidden');
+                return;
+            }
+            
+            const queryKeywords = query.split(' ').filter(k => k.length > 1);
+            
+            const matchedMetrics = METRIC_REGISTRY.filter(metric => {
+                // Find metrics where at least one of its keywords matches the query
+                return metric.keywords.some(metricKeyword => 
+                    queryKeywords.some(queryKeyword => 
+                        metricKeyword.toLowerCase().includes(queryKeyword)
+                    )
+                );
+            });
+            
+            metricsPlaceholder.classList.add('hidden');
+            metricsContainer.innerHTML = ''; // Clear previous results
+            
+            if (matchedMetrics.length === 0) {
+                metricsContainer.innerHTML = `<p class="text-gray-500 col-span-full">No metrics found for "${query}". Try different keywords.</p>`;
+                return;
+            }
+
+            matchedMetrics.forEach(metric => {
+                const card = document.createElement('div');
+                card.className = 'metric-card bg-white p-4 rounded-lg shadow-sm border border-gray-200 cursor-pointer hover:border-green-500';
+                card.setAttribute('data-metric-id', metric.id);
+                card.innerHTML = `
+                    <h3 class="font-semibold text-gray-800">${metric.name}</h3>
+                    <p class="text-sm text-gray-600">${metric.description}</p>
+                `;
+                // Add click listener to select the metric
+                card.addEventListener('click', () => handleMetricSelect(metric));
+                metricsContainer.appendChild(card);
+            });
+        }
+
+        /**
+         * Handles clicking on a metric card:
+         * - Highlights the card
+         * - Shows and populates the parameter section
+         */
+        function handleMetricSelect(metric) {
+            selectedMetric = metric;
+            
+            // Highlight selected card
+            document.querySelectorAll('.metric-card').forEach(card => {
+                if (card.getAttribute('data-metric-id') === metric.id) {
+                    card.classList.add('border-green-500', 'ring-2', 'ring-green-200');
+                    card.classList.remove('bg-white');
+                    card.classList.add('bg-green-50');
+                } else {
+                    card.classList.remove('border-green-500', 'ring-2', 'ring-green-200', 'bg-green-50');
+                    card.classList.add('bg-white');
+                }
+            });
+
+            // Show and populate params section
+            selectedMetricNameEl.textContent = metric.name;
+            renderParameterInputs(metric);
+            paramsSection.classList.remove('hidden');
+            
+            // Hide SQL output until generated
+            sqlOutputSection.classList.add('hidden');
+        }
+
+        /**
+         * Handles "Generate SQL" button click:
+         * - Gets parameter values
+         * - Calls the metric's sqlTemplate function
+         * - Displays the SQL output
+         */
+        function handleGenerateSql() {
+            if (!selectedMetric) return;
+            
+            const params = getParameterValues(selectedMetric);
+            const sqlQuery = selectedMetric.sqlTemplate(params);
+            
+            // Trim leading/trailing whitespace and display
+            sqlOutputEl.textContent = sqlQuery.trim();
+            sqlOutputSection.classList.remove('hidden');
+            
+            // Scroll to the output
+            sqlOutputSection.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }
+        
+        // --- Attach Event Listeners ---
+        searchQueryInput.addEventListener('keyup', handleSearchInput);
+        generateSqlBtn.addEventListener('click', handleGenerateSql);
+        copySqlBtn.addEventListener('click', () => {
+            copyToClipboard(sqlOutputEl.textContent);
+        });
+
+    </script>
+
+</body>
+</html>
